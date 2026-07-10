@@ -1,0 +1,20 @@
+# Secrets - jangan pernah commit token asli
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Hasil download & transkrip. BASE_DOWNLOAD_DIR di telegram_agent.py memang
+# menyimpan ke luar repo (~/Downloads/youtube-tl), tapi tetap dijaga di sini
+# untuk berjaga-jaga kalau lokasinya berubah jadi relatif ke dalam repo.
+youtube-tl/
+*.txt
+!requirements.txt
+
+# Cache model Whisper (faster-whisper / huggingface hub), kalau ter-cache lokal di repo
+.cache/
+models--*/
