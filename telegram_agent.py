@@ -52,6 +52,15 @@ cek_dependensi()
 bot = telebot.TeleBot(TOKEN)
 BASE_DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "youtube-tl")
 
+
+def edit_aman(chat_id, message_id, teks, **kwargs):
+    # Wrapper dipakai di semua tempat yang edit pesan status: abaikan error spt
+    # "message is not modified" atau timeout, jangan sampai bikin proses ikut gagal.
+    try:
+        bot.edit_message_text(teks, chat_id, message_id, **kwargs)
+    except Exception:
+        pass
+
 # Domain link yang didukung (YouTube, Instagram, TikTok)
 DOMAIN_DIDUKUNG = ("youtube.com", "youtu.be", "instagram.com", "tiktok.com")
 DOMAIN_YOUTUBE = ("youtube.com", "youtu.be")
@@ -147,19 +156,10 @@ def buat_progress_hook(chat_id, message_id, judul_singkat):
                     teks = f"📥 {prefix}{judul_singkat}\nMengunduh... {format_ukuran(downloaded)}"
 
                 state["last_edit"] = now
-                try:
-                    bot.edit_message_text(teks, chat_id, message_id)
-                except Exception:
-                    pass  # abaikan error spt "message is not modified", jangan sampai proses download ikut gagal
+                edit_aman(chat_id, message_id, teks)
 
             elif status == "finished":
-                try:
-                    bot.edit_message_text(
-                        f"⚙️ {judul_singkat}\nDownload selesai, memproses file...",
-                        chat_id, message_id
-                    )
-                except Exception:
-                    pass
+                edit_aman(chat_id, message_id, f"⚙️ {judul_singkat}\nDownload selesai, memproses file...")
         except Exception:
             pass  # progress hook tidak boleh sampai menghentikan proses download
 
@@ -306,22 +306,25 @@ def kirim_transkrip(chat_id, teks, path_txt):
             pass
 
 
-def proses_transcript(job):
-    chat_id = job["chat_id"]
-    url = job["url"]
-    message_id = job["message_id"]
-
+def siapkan_job(url):
+    # Setup bersama untuk proses_job & proses_transcript: folder harian + judul singkat.
     tanggal_hari_ini = datetime.now().strftime("%d-%m-%Y")
     target_folder = os.path.join(BASE_DOWNLOAD_DIR, tanggal_hari_ini)
     os.makedirs(target_folder, exist_ok=True)
 
     judul = ambil_judul(url)
     judul_singkat = (judul[:50] + "...") if len(judul) > 50 else judul
+    return target_folder, judul, judul_singkat
 
-    try:
-        bot.edit_message_text(f"🔍 Mencari caption...\n📌 {judul_singkat}", chat_id, message_id)
-    except Exception:
-        pass
+
+def proses_transcript(job):
+    chat_id = job["chat_id"]
+    url = job["url"]
+    message_id = job["message_id"]
+
+    target_folder, judul, judul_singkat = siapkan_job(url)
+
+    edit_aman(chat_id, message_id, f"🔍 Mencari caption...\n📌 {judul_singkat}")
 
     transkrip = None
     try:
@@ -331,25 +334,19 @@ def proses_transcript(job):
 
     audio_path = None
     if not transkrip:
-        try:
-            bot.edit_message_text(
-                f"🎙️ Tidak ada caption, transkrip pakai AI lokal, mohon tunggu...\n📌 {judul_singkat}",
-                chat_id, message_id
-            )
-        except Exception:
-            pass
+        edit_aman(
+            chat_id, message_id,
+            f"🎙️ Tidak ada caption, transkrip pakai AI lokal, mohon tunggu...\n📌 {judul_singkat}"
+        )
 
         try:
             hook = buat_progress_hook(chat_id, message_id, f"[audio] {judul_singkat}")
             audio_path = download_audio_untuk_transkrip(url, target_folder, hook)
 
-            try:
-                bot.edit_message_text(
-                    f"🧠 Transkrip audio pakai Whisper (lokal), bisa beberapa menit...\n📌 {judul_singkat}",
-                    chat_id, message_id
-                )
-            except Exception:
-                pass
+            edit_aman(
+                chat_id, message_id,
+                f"🧠 Transkrip audio pakai Whisper (lokal), bisa beberapa menit...\n📌 {judul_singkat}"
+            )
 
             transkrip = transkrip_dengan_whisper(audio_path)
         except Exception as e:
@@ -370,13 +367,7 @@ def proses_transcript(job):
                     pass
 
     if not transkrip or not transkrip.strip():
-        try:
-            bot.edit_message_text(
-                f"⚠️ Tidak berhasil mendapatkan transkrip untuk video ini.\n📌 {judul_singkat}",
-                chat_id, message_id
-            )
-        except Exception:
-            pass
+        edit_aman(chat_id, message_id, f"⚠️ Tidak berhasil mendapatkan transkrip untuk video ini.\n📌 {judul_singkat}")
         return
 
     path_txt = os.path.join(target_folder, nama_file_aman(judul, "txt"))
@@ -386,10 +377,7 @@ def proses_transcript(job):
     except Exception:
         path_txt = None
 
-    try:
-        bot.edit_message_text(f"✅ Transkrip selesai!\n📌 {judul_singkat}", chat_id, message_id)
-    except Exception:
-        pass
+    edit_aman(chat_id, message_id, f"✅ Transkrip selesai!\n📌 {judul_singkat}")
 
     kirim_transkrip(chat_id, transkrip, path_txt)
 
@@ -426,23 +414,13 @@ def proses_job(job):
     message_id = job["message_id"]
 
     # Fitur Manajemen Folder: folder berdasarkan tanggal hari ini (Contoh: 14-06-2026)
-    tanggal_hari_ini = datetime.now().strftime("%d-%m-%Y")
-    target_folder = os.path.join(BASE_DOWNLOAD_DIR, tanggal_hari_ini)
-    os.makedirs(target_folder, exist_ok=True)
-
-    judul = ambil_judul(url)
-    judul_singkat = (judul[:50] + "...") if len(judul) > 50 else judul
+    target_folder, judul, judul_singkat = siapkan_job(url)
+    tanggal_hari_ini = os.path.basename(target_folder)
     label_format = "MP3 (Audio)" if is_mp3 else f"MP4 ({LABEL_KUALITAS.get(kualitas, 'Best')})"
 
     # Pesan status ini cuma kosmetik: kalau timeout/network hiccup ke Telegram di sini,
     # jangan sampai bikin seluruh job dianggap gagal padahal downloadnya sendiri belum tentu gagal.
-    try:
-        bot.edit_message_text(
-            f"📥 Sedang Mengunduh ({label_format}):\n📌 {judul_singkat}",
-            chat_id, message_id
-        )
-    except Exception:
-        pass
+    edit_aman(chat_id, message_id, f"📥 Sedang Mengunduh ({label_format}):\n📌 {judul_singkat}")
 
     # Ini bagian yang benar-benar bisa gagal (yt-dlp/ffmpeg) -> baru dilaporkan sebagai error
     try:
@@ -459,13 +437,7 @@ def proses_job(job):
                 pass
         return
 
-    try:
-        bot.edit_message_text(
-            f"✅ Selesai! File sudah masuk ke komputer di folder youtube-tl/{tanggal_hari_ini}",
-            chat_id, message_id
-        )
-    except Exception:
-        pass
+    edit_aman(chat_id, message_id, f"✅ Selesai! File sudah masuk ke komputer di folder youtube-tl/{tanggal_hari_ini}")
 
     # Cari file untuk dikirim balik ke HP jika ukuran memungkinkan
     try:
@@ -524,13 +496,7 @@ threading.Thread(target=worker_loop, daemon=True).start()
 def tambahkan_ke_antrian(job):
     posisi = posisi_antrian()
     if posisi > 0:
-        try:
-            bot.edit_message_text(
-                f"⏳ Ditambahkan ke antrian (posisi ke-{posisi + 1})...",
-                job["chat_id"], job["message_id"]
-            )
-        except Exception:
-            pass
+        edit_aman(job["chat_id"], job["message_id"], f"⏳ Ditambahkan ke antrian (posisi ke-{posisi + 1})...")
     download_queue.put(job)
 
 
