@@ -18,3 +18,7 @@ youtube-tl/
 # Cache model Whisper (faster-whisper / huggingface hub), kalau ter-cache lokal di repo
 .cache/
 models--*/
+
+# Log & state runner (run_bot.ps1 / stop_bot.ps1)
+logs/
+stop.flag
